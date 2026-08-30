@@ -21,6 +21,10 @@ import java.io.InputStream;
 // @Test 와 assertThat 을 찾을 수 없다. 반드시 src/test/java 아래에 있어야 한다.
 import static org.assertj.core.api.Assertions.assertThat;
 
+// 예외가 던져지는 것을 검증할 때 쓴다. 람다 안의 코드를 실행해보고
+// 예외가 났는지, 어떤 타입인지, 메시지가 무엇인지를 이어서 확인할 수 있다.
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 /**
  * CSV 파서가 샘플 파일을 규칙대로 분류하는지 검증한다.
  *
@@ -157,22 +161,61 @@ class RecipientCsvParserTest {
     }
 
     /**
-     * 이 테스트는 '버그'가 아니라 '알고 있는 한계'를 문서로 고정한 것이다.
-     *
-     * 30행 "012-123-4567" 은 하이픈을 지우면 0121234567 로 10자리이고
-     * 0으로 시작하므로 내 규칙을 통과한다. 휴대폰번호로는 어색한 형태다.
-     *
-     * 막지 않은 이유: 샘플의 번호가 전부 012 로 시작하는 가짜 번호라서
-     * 통신사 앞자리(010/011...) 정규식을 넣으면 파일 40행이 전부 반려된다.
-     * "이 파일이 동작해야 한다"는 요구사항과 정면으로 충돌한다.
-     *
-     * 그래서 통과시키는 쪽을 택했고, 그 선택을 감춰두는 대신 테스트로 드러냈다.
-     * 나중에 실제 번호 규칙이 정해지면 이 테스트가 먼저 빨간불이 되어
-     * "여기 정책이 있었다"고 알려준다.
+     * 30행 "012-123-4567" 은 하이픈을 지우면 0121234567 로 10자리다.
+     * 11자리가 아니어도 통과시킨 판단을 고정해둔다. 과거 011/016 번호가
+     * 10자리였고, 샘플이 가짜 앞자리를 쓰는 것을 보면 자릿수를 관용하라는
+     * 의도로 읽었다.
      */
     @Test
-    @DisplayName("알려진 한계: 10자리 유선번호는 현재 규칙을 통과한다")
-    void tenDigitLandlineCurrentlyPasses() {
+    @DisplayName("10자리 휴대폰번호도 통과한다")
+    void tenDigitMobileNumberPasses() {
         assertThat(PhoneNormalizer.normalize("012-123-4567")).isEqualTo("0121234567");
+    }
+
+    /**
+     * 자릿수만 검사하던 규칙에서는 10자리 유선번호가 그대로 통과했다.
+     * 0212345678 은 10자리이고 0으로 시작하기 때문이다. 유선번호는 문자를
+     * 받을 수 없으므로 저장해도 발송이 실패할 뿐이다.
+     *
+     * 통신사 앞자리 목록(010/011/016...)은 샘플이 전부 012 라서 쓸 수 없지만,
+     * "01 로 시작한다"는 조건은 012 를 살리면서 유선번호를 걸러낸다.
+     * 이 테스트가 그 조건이 살아 있는지를 지킨다.
+     *
+     * 070(인터넷전화)과 지역번호를 함께 넣은 이유: 02 만 막으면 041, 051 같은
+     * 다른 지역 유선번호가 그대로 통과한다. 01 접두어 조건은 한 번에 다 막는다.
+     */
+    @Test
+    @DisplayName("유선번호와 인터넷전화는 자릿수가 맞아도 거절한다")
+    void landlineAndVoipNumbersAreRejected() {
+        // 10자리 서울 유선번호. 예전 규칙을 통과했던 바로 그 값이다.
+        assertThatThrownBy(() -> PhoneNormalizer.normalize("02-1234-5678"))
+                .isInstanceOf(InvalidRowException.class)
+                .hasMessageContaining("휴대폰번호가 아닙니다");
+
+        // 11자리 유선번호. 자릿수 상한에도 걸리지 않는다.
+        assertThatThrownBy(() -> PhoneNormalizer.normalize("031-1234-5678"))
+                .isInstanceOf(InvalidRowException.class)
+                .hasMessageContaining("휴대폰번호가 아닙니다");
+
+        // 02, 03 만 막는 방식으로는 놓치는 지역번호.
+        assertThatThrownBy(() -> PhoneNormalizer.normalize("051-1234-5678"))
+                .isInstanceOf(InvalidRowException.class)
+                .hasMessageContaining("휴대폰번호가 아닙니다");
+
+        // 인터넷전화. 0으로 시작하고 11자리라서 자릿수 검사만으로는 통과했다.
+        assertThatThrownBy(() -> PhoneNormalizer.normalize("070-1234-5678"))
+                .isInstanceOf(InvalidRowException.class)
+                .hasMessageContaining("휴대폰번호가 아닙니다");
+    }
+
+    /**
+     * 위 검사를 넣어도 샘플 32건이 그대로 살아남는지 확인한다.
+     * 012 는 01 로 시작하므로 영향이 없다는 것이 이 변경의 전제였고,
+     * 전제가 깨지면 여기서 먼저 드러난다.
+     */
+    @Test
+    @DisplayName("샘플의 012 번호는 접두어 검사에 걸리지 않는다")
+    void sampleFakePrefixStillPasses() {
+        assertThat(PhoneNormalizer.normalize("012-2341-5678")).isEqualTo("01223415678");
     }
 }
