@@ -60,7 +60,7 @@ public final class PhoneNormalizer {
         //     실제 문제는 자릿수가 아니라 앞자리 0이므로 사유를 구분한다.
         //     0을 붙여 자동 복원하지 않는 이유: 추측이 틀리면 엉뚱한 사람에게 문자가 간다.
         if (digits.length() == 10 && !digits.startsWith("0")) {
-            throw new InvalidRowException("앞자리 0이 누락된 것으로 보입니다 (원본 확인 필요");
+            throw new InvalidRowException("앞자리 0이 누락된 것으로 보입니다 (원본 확인 필요)");
         }
 
         // [7] 마지막으로 시작 숫자와 자릿수를 확인한다. 10~11자리, 0으로 시작만 통과.
